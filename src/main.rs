@@ -1,54 +1,69 @@
 #[macro_use]
 extern crate glium;
 
+#[path = "teapot.rs"]
 mod teapot;
 
 fn main() {
     use glium::{DisplayBuild, Surface};
-    let display = glium::glutin::WindowBuilder::new().build_glium().unwrap();
+    let display = glium::glutin::WindowBuilder::new()
+        .with_depth_buffer(24)
+        .build_glium().unwrap();
     
     let mut t: f32 = 0.0;
 
-    #[derive(Copy, Clone)]
-    struct Vertex {
-        v: [f32; 3],
-    }
-
-    implement_vertex!(Vertex, v);
-    let v1 = Vertex { v: [-0.5 , -0.5 ,  0.0 ] };
-    let v2 = Vertex { v: [ 0.0 ,  0.5 ,  0.0 ] };
-    let v3 = Vertex { v: [ 0.5 , -0.25,  0.0 ] };
-    let shape = vec![v1, v2, v3];
-
-    let vertex_buffer = glium::VertexBuffer::new(&display, &shape).unwrap();
-    let indices = glium::index::
-        NoIndices(glium::index::PrimitiveType::TrianglesList);
+    let positions = glium::VertexBuffer::new(&display, &teapot::VERTICES).unwrap();
+    let normals = glium::VertexBuffer::new(&display, &teapot::NORMALS).unwrap();
+    let indices = glium::IndexBuffer::new(&display,
+                                          glium::index::PrimitiveType::TrianglesList,
+                                          &teapot::INDICES).unwrap();
 
     let vertex_shader_src = r#"
         #version 140
-        in vec3 v;
-        out vec3 pos;
-        uniform mat4 matrix;
+
+        in vec3 position;
+        in vec3 normal;
+
+        out vec3 v_normal;
+        
+        uniform mat4 rotation;
+        uniform mat4 scaling;
+
         void main() {
-            pos = v;
-            gl_Position = matrix * vec4(v, 1.0);
+            mat4 matrix = rotation * scaling;
+            v_normal = transpose(inverse(mat3(matrix))) * normal;
+            gl_Position = matrix * vec4(position, 1.0);
         }
     "#;
 
     let fragment_shader_src = r#"
         #version 140
-        in vec3 pos;
+        
+        in vec3 v_normal;
         out vec4 color;
+        uniform vec3 u_light;
+
         void main() {
-            color = vec4(pos, 1.0);
+            float brightness = dot(normalize(v_normal), normalize(u_light));
+            vec3 dark_color = vec3(0.6, 0.0, 0.0);
+            vec3 regular_color = vec3(1.0, 0.0, 0.0);
+            color = vec4(mix(dark_color, regular_color, brightness), 1.0);
         }
     "#;
 
-    let program = glium::Program:: from_source(&display,
-                                               vertex_shader_src,
-                                               fragment_shader_src, None)
-        .unwrap();
+    let program = glium::Program::from_source(&display,
+                                              vertex_shader_src,
+                                              fragment_shader_src,
+                                              None).unwrap();
 
+    let params = glium::DrawParameters {
+        depth: glium::Depth {
+            test: glium::draw_parameters::DepthTest::IfLess,
+            write: true,
+            .. Default::default()
+        },
+        .. Default::default()
+    };
 
     loop {
 
@@ -58,20 +73,26 @@ fn main() {
         }
 
         let uniforms = uniform! {
-            matrix: [
-                [ t.cos(), t.sin(), 0.0, 0.0],
-                [-t.sin(), t.cos(), 0.0, 0.0],
-                [    0.0 ,    0.0 , 1.0, 0.0],
-                [    0.0 ,    0.0 , 0.0, 1.0f32],
-            ]
+            rotation: [
+                [ t.cos(), t.sin(), 0.0 , 0.0],
+                [-t.sin(), t.cos(), 0.0 , 0.0],
+                [    0.0 ,    0.0 , 1.0 , 0.0],
+                [    0.0 ,    0.0 , 0.0 , 1.0f32],
+            ],
+            scaling: [
+                [    0.01,    0.0 , 0.0 , 0.0],
+                [    0.0 ,    0.01, 0.0 , 0.0],
+                [    0.0 ,    0.0 , 0.01, 0.0],
+                [    0.0 ,    0.0 , 0.0 , 1.0f32],
+            ],
+            u_light: [-1.0, 0.4, 0.9f32],
         };
 
         let mut target = display.draw();
-        target.clear_color(0.0, 0.0, 0.0, 1.0);
-        target.draw(&vertex_buffer, &indices, &program,
-                    &uniforms,
-                    &Default::default())
-            .unwrap();
+        target.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
+
+        target.draw((&positions, &normals), &indices, &program, &uniforms,
+                    &params).unwrap();
         target.finish().unwrap();
 
         for event in display.poll_events() {
