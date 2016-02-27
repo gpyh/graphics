@@ -28,11 +28,12 @@ fn main() {
         
         uniform mat4 rotation;
         uniform mat4 scaling;
+        uniform mat4 perspective;
 
         void main() {
             mat4 matrix = rotation * scaling;
             v_normal = transpose(inverse(mat3(matrix))) * normal;
-            gl_Position = matrix * vec4(position, 1.0);
+            gl_Position = perspective * matrix * vec4(position, 1.0);
         }
     "#;
 
@@ -72,6 +73,27 @@ fn main() {
             t = 0.0;
         }
 
+        let mut target = display.draw();
+        target.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
+
+        let perspective = {
+            let (width, height) = target.get_dimensions();
+            let aspect_ratio = height as f32 / width as f32;
+
+            let fov: f32 = std::f32::consts::PI / 3.0;
+            let far = 1024.0;
+            let near = 0.1;
+
+            let f = 1.0 / (fov / 2.0).tan();
+
+            [
+                [f * aspect_ratio, 0.0,                       0.0, 0.0],
+                [             0.0,  f ,                       0.0, 0.0],
+                [             0.0, 0.0,     (far+near)/(far-near), 1.0],
+                [             0.0, 0.0,-(2.0*far*near)/(far-near), 0.0],
+            ]
+        };
+
         let uniforms = uniform! {
             rotation: [
                 [ t.cos(), t.sin(), 0.0 , 0.0],
@@ -83,13 +105,12 @@ fn main() {
                 [    0.01,    0.0 , 0.0 , 0.0],
                 [    0.0 ,    0.01, 0.0 , 0.0],
                 [    0.0 ,    0.0 , 0.01, 0.0],
-                [    0.0 ,    0.0 , 0.0 , 1.0f32],
+                [    0.0 ,    0.0 , 2.0 , 1.0f32],
             ],
             u_light: [-1.0, 0.4, 0.9f32],
+            perspective: perspective,
         };
 
-        let mut target = display.draw();
-        target.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
 
         target.draw((&positions, &normals), &indices, &program, &uniforms,
                     &params).unwrap();
